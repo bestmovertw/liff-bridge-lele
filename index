@@ -29,7 +29,7 @@
 
     <script>
         const CONFIG = {
-            LIFF_ID: "2010088960-cJY7OeEm",
+            LIFF_ID: "2010863844-o2W4ValF",
             N8N_URL: "https://n8n.parzival0626.com/webhook/3bde367e-34cb-4133-9a2a-2d775c6785a3",
             MOBILE_OA_ID: "@168rrxlb",
             PC_OA_ID: "@168rrxlb",
