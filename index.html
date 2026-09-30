@@ -37,6 +37,43 @@
         };
 
         const MAX_HOPS = 3;
+        const UTM_KEYS = [
+            'utm_source', 'utm_medium', 'utm_campaign',
+            'utm_term', 'utm_content', 'utm_id'
+        ];
+        const UTM_STORAGE_KEY = 'lele_bridge_utm_v1';
+
+        // 同一分頁內保存來源；新 UTM 一整組取代舊值，避免混入上次活動。
+        // sessionStorage 不會新增 Cookie，亦不會彈出同意視窗。
+        function readUtm(params) {
+            let saved = {};
+            try {
+                saved = JSON.parse(sessionStorage.getItem(UTM_STORAGE_KEY) || '{}') || {};
+            } catch (e) {}
+
+            const hasNewUtm = UTM_KEYS.some(key => params.has(key));
+            const utm = {};
+            UTM_KEYS.forEach(key => {
+                utm[key] = hasNewUtm
+                    ? (params.get(key) || '')
+                    : (typeof saved[key] === 'string' ? saved[key] : '');
+            });
+            if (hasNewUtm) {
+                try {
+                    sessionStorage.setItem(UTM_STORAGE_KEY, JSON.stringify(utm));
+                } catch (e) {}
+            }
+            return utm;
+        }
+
+        // 僅附加已知 UTM 欄位，使用 URLSearchParams 處理中文與特殊字元。
+        function withUtm(url, utm) {
+            const target = new URL(url);
+            UTM_KEYS.forEach(key => {
+                if (utm[key]) target.searchParams.set(key, utm[key]);
+            });
+            return target.toString();
+        }
 
         function send(data) {
             try {
@@ -86,18 +123,20 @@
 
                 const enteredLiff =
                     params.get('in_liff') === '1' ||
+                    params.has('liff.state') ||
                     sessionStorage.getItem('entered_liff') === '1';
 
                 const gclid  = getParam(params, 'gclid',  'saved_gclid');
                 const gbraid = getParam(params, 'gbraid', 'saved_gbraid');
                 const wbraid = getParam(params, 'wbraid', 'saved_wbraid');
+                let utm = readUtm(params);
 
                 fetch('https://api.ipify.org?format=json')
                     .then(r => r.json())
                     .then(d => { if (d.ip) sessionStorage.setItem('saved_ip', d.ip); })
                     .catch(() => {});
 
-                const addFriendUrl = `https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`;
+                let addFriendUrl = withUtm(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`, utm);
 
                 // ============================================================
                 // 第二段：LINE / LIFF 環境
@@ -107,6 +146,7 @@
 
                     let payload = {
                         gclid, gbraid, wbraid,
+                        ...utm,
                         user_ip:    sessionStorage.getItem('saved_ip') || "unknown",
                         source:     "Inside_Line",
                         timestamp:  new Date().toISOString(),
@@ -120,6 +160,14 @@
                         await Promise.race([
                             (async () => {
                                 await liff.init({ liffId: CONFIG.LIFF_ID });
+                                // LIFF 可能在初始化時還原網址參數，完成後再讀取。
+                                const restoredParams = new URLSearchParams(window.location.search);
+                                utm = readUtm(restoredParams);
+                                Object.assign(payload, utm);
+                                payload.gclid = getParam(restoredParams, 'gclid', 'saved_gclid');
+                                payload.gbraid = getParam(restoredParams, 'gbraid', 'saved_gbraid');
+                                payload.wbraid = getParam(restoredParams, 'wbraid', 'saved_wbraid');
+                                addFriendUrl = withUtm(`https://line.me/R/ti/p/${CONFIG.MOBILE_OA_ID}`, utm);
                                 liffReady = true;
                                 loggedIn = liff.isLoggedIn();
                             })(),
@@ -163,9 +211,9 @@
                     `&gbraid=${encodeURIComponent(gbraid)}` +
                     `&wbraid=${encodeURIComponent(wbraid)}`;
 
-                const targetUrl = isMobile
+                const targetUrl = withUtm(isMobile
                     ? `https://liff.line.me/${CONFIG.LIFF_ID}?${qs}`
-                    : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${encodeURIComponent(gclid)}&gbraid=${encodeURIComponent(gbraid)}&wbraid=${encodeURIComponent(wbraid)}`;
+                    : `https://line.me/R/ti/p/${CONFIG.PC_OA_ID}?gclid=${encodeURIComponent(gclid)}&gbraid=${encodeURIComponent(gbraid)}&wbraid=${encodeURIComponent(wbraid)}`, utm);
 
                 safeRedirect(targetUrl, "若未自動開啟，請點擊下方按鈕加入 LINE：");
 
